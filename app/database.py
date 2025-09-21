@@ -77,6 +77,7 @@ class UserSession(Base):
     
     __table_args__ = (
         Index('idx_user_session_user_updated', 'user_id', 'updated_at'),
+        Index('idx_user_session_unique_user', 'user_id', unique=True),
     )
 
 class Product(Base):

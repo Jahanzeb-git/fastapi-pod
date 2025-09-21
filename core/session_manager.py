@@ -34,23 +34,41 @@ class SessionManager:
             logger.error(f"Error retrieving session for user {user_id}: {e}")
             return None
     
-    @staticmethod
-    async def create_or_update_session(
-        db: AsyncSession, 
-        user_id: UUID,
-        agent_state: str = "no_product_selected",
-        conversation_history: Optional[List[Dict]] = None,
-        product_context: Optional[Dict] = None,
-        design_urls: Optional[Dict] = None,
-        session_metadata: Optional[Dict] = None
-    ) -> UserSession:
-        """Create new session or update existing one"""
-        try:
-            if conversation_history is None:
-                conversation_history = []
+@staticmethod
+async def create_or_update_session(
+    db: AsyncSession, 
+    user_id: UUID,
+    agent_state: str = "no_product_selected",
+    conversation_history: Optional[List[Dict]] = None,
+    product_context: Optional[Dict] = None,
+    design_urls: Optional[Dict] = None,
+    session_metadata: Optional[Dict] = None
+) -> UserSession:
+    """Create new session or update existing one"""
+    try:
+        if conversation_history is None:
+            conversation_history = []
+        
+        # First try to get existing session
+        existing_session = await SessionManager.get_user_session(db, user_id)
+        
+        if existing_session:
+            # Update existing session
+            existing_session.agent_state = agent_state
+            existing_session.conversation_history = conversation_history
+            existing_session.product_context = product_context
+            existing_session.design_urls = design_urls
+            existing_session.session_metadata = session_metadata
+            existing_session.updated_at = datetime.now(timezone.utc)
             
-            # Use upsert to handle concurrent requests
-            stmt = insert(UserSession).values(
+            await db.commit()
+            await db.refresh(existing_session)
+            
+            logger.info(f"Session updated for user {user_id}: state={agent_state}")
+            return existing_session
+        else:
+            # Create new session
+            new_session = UserSession(
                 user_id=user_id,
                 agent_state=agent_state,
                 conversation_history=conversation_history,
@@ -61,30 +79,17 @@ class SessionManager:
                 updated_at=datetime.now(timezone.utc)
             )
             
-            # On conflict, update the existing record
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['user_id'],
-                set_=dict(
-                    agent_state=stmt.excluded.agent_state,
-                    conversation_history=stmt.excluded.conversation_history,
-                    product_context=stmt.excluded.product_context,
-                    design_urls=stmt.excluded.design_urls,
-                    session_metadata=stmt.excluded.session_metadata,
-                    updated_at=datetime.now(timezone.utc)
-                )
-            ).returning(UserSession)
-            
-            result = await db.execute(stmt)
-            session = result.scalar_one()
+            db.add(new_session)
             await db.commit()
+            await db.refresh(new_session)
             
-            logger.info(f"Session created/updated for user {user_id}: state={agent_state}")
-            return session
+            logger.info(f"Session created for user {user_id}: state={agent_state}")
+            return new_session
             
-        except Exception as e:
-            logger.error(f"Error creating/updating session for user {user_id}: {e}")
-            await db.rollback()
-            raise
+    except Exception as e:
+        logger.error(f"Error creating/updating session for user {user_id}: {e}")
+        await db.rollback()
+        raise
     
     @staticmethod
     async def update_session_state(

@@ -17,8 +17,6 @@ from core.ui_event_manager import UIEventType
 from core.session_manager import SessionManager
 from agent.graph import app_graph
 from langchain_core.messages import HumanMessage
-from async_generator import anext
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO if settings.DEBUG else logging.WARNING)

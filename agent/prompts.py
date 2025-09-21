@@ -46,17 +46,20 @@ def get_product_context(product_context) -> str:
     if not product_context:
         return ""
     
+    product = product_context.get('product', {})
+    user_selection = product_context.get('user_selection', {})
+    
     return f"""
 CURRENT PRODUCT CONTEXT:
-- Product: {product_context.name} by {product_context.brand}
-- Description: {product_context.description}
-- Selected Size: {product_context.user_selection.get('size', 'N/A')}
-- Selected Color: {product_context.user_selection.get('color', 'N/A')}
-- Selected Placement: {product_context.user_selection.get('placement', 'N/A')}
-- Available Techniques: {', '.join(product_context.techniques_available)}
-- Placement Dimensions: {product_context.placement_dimensions_available}
-- Available Sizes: {', '.join(product_context.sizes_available)}
-- Available Colors: {[color.get('name', 'Unknown') for color in product_context.colors_available]}
+- Product: {product.get('name', 'Unknown')} by {product.get('brand', 'Unknown')}
+- Description: {product.get('description', 'N/A')}
+- Selected Size: {user_selection.get('size', 'N/A')}
+- Selected Color: {user_selection.get('color', 'N/A')}
+- Selected Placement: {user_selection.get('placement', 'N/A')}
+- Available Techniques: {', '.join(product.get('techniques_available', []))}
+- Placement Dimensions: {product.get('placement_dimensions_available', {})}
+- Available Sizes: {', '.join(product.get('sizes_available', []))}
+- Available Colors: {[color.get('name', 'Unknown') for color in product.get('colors_available', [])]}
 """
 
 def get_design_context(design_url: Optional[str], upscaled_url: Optional[str]) -> str:

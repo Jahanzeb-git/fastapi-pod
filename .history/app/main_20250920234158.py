@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import json
-from typing import Dict, Any, List, Optional, AsyncGenerator 
+from typing import Dict, Any, List, Optional
 from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -17,8 +17,6 @@ from core.ui_event_manager import UIEventType
 from core.session_manager import SessionManager
 from agent.graph import app_graph
 from langchain_core.messages import HumanMessage
-from async_generator import anext
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO if settings.DEBUG else logging.WARNING)

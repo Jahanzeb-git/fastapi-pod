@@ -86,20 +86,42 @@ async def update_state_node(state: AgentGraphState) -> AgentGraphState:
     """Update database state based on tool calls"""
     user_id = UUID(state['user_id'])
     db = state['db']
-    last_message = state['messages'][-1]
-
-    if isinstance(last_message, ToolMessage):
-        tool_name = last_message.name
-        tool_output = json.loads(last_message.content)
-
-        if tool_name == 'create_design':
-            await SessionManager.update_design_urls(db, user_id, design_url=tool_output.get('design_url'))
-            await SessionManager.update_session_state(db, user_id, AgentState.DESIGN_CREATED.value)
-        elif tool_name == 'upscaling':
-            await SessionManager.update_design_urls(db, user_id, upscaled_url=tool_output.get('upscaled_url'))
-        elif tool_name == 'place_order':
-            await SessionManager.clear_session(db, user_id)
-
+    
+    # Check if there are tool messages (responses from tools)
+    if len(state['messages']) >= 2:
+        # Get the last AI message that triggered the tool
+        for msg in reversed(state['messages'][:-1]):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    tool_name = tool_call['name']
+                    
+                    # Get corresponding tool response
+                    last_message = state['messages'][-1]
+                    if isinstance(last_message, ToolMessage):
+                        try:
+                            tool_output = json.loads(last_message.content)
+                            
+                            if tool_name == 'create_design':
+                                await SessionManager.update_design_urls(
+                                    db, user_id, 
+                                    design_url=tool_output.get('design_url')
+                                )
+                                await SessionManager.update_session_state(
+                                    db, user_id, 
+                                    AgentState.DESIGN_CREATED.value
+                                )
+                            elif tool_name == 'upscaling':
+                                await SessionManager.update_design_urls(
+                                    db, user_id, 
+                                    upscaled_url=tool_output.get('upscaled_url')
+                                )
+                            elif tool_name == 'place_order':
+                                # Don't clear session here - let the order endpoint handle it
+                                pass
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse tool output: {last_message.content}")
+                break
+    
     return state
 
 # Router function
