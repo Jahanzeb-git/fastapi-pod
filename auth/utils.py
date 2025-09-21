@@ -131,21 +131,74 @@ class TokenManager:
         
         return parts[1]
 
+import logging
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from google.oauth2 import id_token
+from google.auth import exceptions as google_auth_exceptions
+
+logger = logging.getLogger(__name__)
+
 class GoogleOAuthValidator:
     @staticmethod
     async def verify_google_token(auth_code: str) -> Optional[Dict[str, Any]]:
         """
-        Verify Google OAuth authorization code and return user info
-        This is a placeholder - you'll need to implement the actual Google OAuth flow
+        Verify Google OAuth authorization code and return user info.
+
+        This method performs the server-side part of the OAuth 2.0 authorization code flow.
+        It exchanges the code for tokens and verifies the id_token to get user info.
         """
-        # TODO: Implement actual Google OAuth verification
-        # This should:
-        # 1. Exchange auth_code for access token
-        # 2. Use access token to get user info from Google
-        # 3. Return user info dict with email, name, picture, etc.
-        
-        # For now, return None to indicate not implemented
-        return None
+        if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+            logger.error("Google OAuth credentials are not configured in the environment.")
+            return None
+
+        try:
+            # Configuration for the OAuth flow.
+            # This is constructed from your settings, avoiding hardcoded secrets.
+            client_config = {
+                "web": {
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": [settings.GOOGLE_REDIRECT_URI],
+                }
+            }
+
+            # Create a Flow instance to manage the OAuth 2.0 exchange.
+            flow = Flow.from_client_config(
+                client_config=client_config,
+                scopes=[
+                    "https://www.googleapis.com/auth/userinfo.profile",
+                    "https://www.googleapis.com/auth/userinfo.email",
+                    "openid",
+                ],
+                redirect_uri=settings.GOOGLE_REDIRECT_URI,
+            )
+
+            # Exchange the authorization code for credentials (access_token, id_token).
+            flow.fetch_token(code=auth_code)
+            credentials = flow.credentials
+
+            if not credentials or not credentials.id_token:
+                logger.error("Failed to fetch ID token from Google.")
+                return None
+
+            # Verify the ID token and extract user information.
+            # This step is crucial for security, ensuring the token is valid and from Google.
+            id_info = id_token.verify_oauth2_token(
+                credentials.id_token, Request(), settings.GOOGLE_CLIENT_ID
+            )
+            
+            return GoogleOAuthValidator.validate_google_user_info(id_info)
+
+        except google_auth_exceptions.OAuthError as e:
+            logger.error(f"Google OAuth error during token verification: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"An unexpected error occurred in verify_google_token: {e}")
+            return None
     
     @staticmethod
     def validate_google_user_info(user_info: Dict[str, Any]) -> Dict[str, Any]:
