@@ -11,6 +11,7 @@ from app.config import settings
 from core.session_manager import SessionManager
 from core.websocket_manager import websocket_manager
 from core.cloudinary_utils import upload_image_from_buffer
+from core.image_pipeline import compute_flux_requirements
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +22,32 @@ POLLING_TIMEOUT_SECONDS = 40
 @tool
 async def create_design(
     prompt: str, 
-    aspect_ratio: str, 
+    width: float,
+    height: float,
+    dpi: float,
     user_id: str, # Injected by CustomToolNode
     db: AsyncSession, # Injected by CustomToolNode
     seed: Optional[int] = None, 
     image_url: Optional[str] = None, 
     edit: bool = False
 ) -> str:
-    """Generates or edits an image based on a prompt. For generation, provide a prompt and aspect_ratio (e.g., '1:1', '16:9'). For editing, also provide the image_url of the source image and set edit=True."""
+    """Use this tool to generate or edit a design. 
+    
+    **GENERATION:** To generate a new image, you MUST provide a detailed, artistic 'prompt', and the exact 'width', 'height', and 'dpi' from the product context.
+    
+    **EDITING:** To edit an existing design, you MUST provide a 'prompt' describing the change, the 'image_url' of the current design, set 'edit' to True, and provide the 'width', 'height', and 'dpi'.
+    """
     
     logger.info(f"[TOOL] create_design called for user {user_id}. Prompt: '{prompt}'")
+
+    # 1. Calculate aspect ratio using the image pipeline
+    try:
+        flux_reqs = compute_flux_requirements(width_in=width, height_in=height, dpi=dpi)
+        aspect_ratio = flux_reqs.aspect_ratio_str
+        logger.info(f"Computed aspect ratio: {aspect_ratio} for width={width}, height={height}, dpi={dpi}")
+    except Exception as e:
+        logger.error(f"Error computing flux requirements: {e}")
+        return json.dumps({"status": "error", "message": f"Failed to calculate aspect ratio: {e}"})
 
     headers = {
         "accept": "application/json",
@@ -51,7 +68,7 @@ async def create_design(
         payload["seed"] = seed
 
     try:
-        # 1. Start the generation job
+        # 2. Start the generation job
         async with httpx.AsyncClient() as client:
             response = await client.post(BFL_API_ENDPOINT, headers=headers, json=payload, timeout=20)
             response.raise_for_status()
@@ -62,7 +79,7 @@ async def create_design(
 
             logger.info(f"BFL job submitted. Polling URL: {polling_url}")
 
-            # 2. Asynchronous polling loop
+            # 3. Asynchronous polling loop
             bfl_result = None
             for _ in range(POLLING_TIMEOUT_SECONDS // POLLING_INTERVAL_SECONDS):
                 await asyncio.sleep(POLLING_INTERVAL_SECONDS)
@@ -78,25 +95,25 @@ async def create_design(
                     raise Exception(f"BFL job failed: {result_data}")
             
             if not bfl_result:
-                raise Exception("BFL job timed out after {POLLING_TIMEOUT_SECONDS} seconds.")
+                raise Exception(f"BFL job timed out after {POLLING_TIMEOUT_SECONDS} seconds.")
 
-            # 3. Download the image from BFL
+            # 4. Download the image from BFL
             image_response = await client.get(bfl_result, timeout=30)
             image_response.raise_for_status()
             image_buffer = image_response.content
             logger.info("Successfully downloaded image from BFL.")
 
-        # 4. Upload to Cloudinary
+        # 5. Upload to Cloudinary
         cloudinary_result = await upload_image_from_buffer(image_buffer)
         cloudinary_url = cloudinary_result["url"]
         logger.info(f"Uploaded to Cloudinary: {cloudinary_url}")
 
-        # 5. Update state and notify frontend
+        # 6. Update state and notify frontend
         await SessionManager.update_design_urls(db, UUID(user_id), design_url=cloudinary_url)
         await websocket_manager.send_signal(user_id, "image_ready", {"design_url": cloudinary_url})
         logger.info(f"Session updated and frontend notified for user {user_id}.")
 
-        # 6. Return the final URL to the agent
+        # 7. Return the final URL to the agent
         return json.dumps({"status": "success", "design_url": cloudinary_url})
 
     except httpx.HTTPStatusError as e:

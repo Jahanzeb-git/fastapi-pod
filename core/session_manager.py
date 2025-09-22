@@ -174,13 +174,14 @@ async def create_or_update_session(
         user_id: UUID, 
         product_context: Dict[str, Any]
     ) -> bool:
-        """Update product context in session"""
+        """Update product context in session and clear any previous design."""
         try:
             stmt = update(UserSession).where(
                 UserSession.user_id == user_id
             ).values(
                 product_context=product_context,
                 agent_state="product_selected",
+                design_urls=None,  # CRITICAL: Clear old design on new product selection
                 updated_at=datetime.now(timezone.utc)
             )
             
@@ -188,14 +189,15 @@ async def create_or_update_session(
             await db.commit()
             
             if result.rowcount > 0:
-                logger.info(f"Updated product context for user {user_id}")
+                logger.info(f"Updated product context and cleared design for user {user_id}")
                 return True
             else:
-                # Create session if none exists
+                # Create session if none exists, ensuring design_urls is None
                 await SessionManager.create_or_update_session(
                     db, user_id, 
                     agent_state="product_selected",
-                    product_context=product_context
+                    product_context=product_context,
+                    design_urls=None
                 )
                 return True
                 
