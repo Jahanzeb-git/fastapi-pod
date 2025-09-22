@@ -42,6 +42,15 @@ class Settings(BaseSettings):
         default="Bearer 3nbHw2A3tnA4mTy4q8TOivVJB1ureKe99OBNR2ym",
         description="Printful API authentication token"
     )
+
+    # Black Forest Labs API Configuration
+    BFL_API_KEY: str = Field(default="", description="API key for Black Forest Labs Flux.1")
+    BFL_WEBHOOK_SECRET: str = Field(default="", description="Webhook secret for BFL callbacks")
+
+    # Cloudinary Configuration
+    CLOUDINARY_CLOUD_NAME: str = Field(default="", description="Cloudinary cloud name")
+    CLOUDINARY_API_KEY: str = Field(default="", description="Cloudinary API key")
+    CLOUDINARY_API_SECRET: str = Field(default="", description="Cloudinary API secret")
     
     # Security Configuration
     BCRYPT_ROUNDS: int = Field(default=12, description="Bcrypt hashing rounds")

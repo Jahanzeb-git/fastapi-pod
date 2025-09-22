@@ -1,4 +1,3 @@
-import uuid
 import json
 import logging
 import requests
@@ -8,9 +7,7 @@ from colormath.color_objects import sRGBColor, LabColor
 from colormath.color_conversions import convert_color
 from colormath.color_diff import delta_e_cie2000
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
 
-from core.session_manager import SessionManager
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -193,82 +190,3 @@ async def search_catalog(subcategory_id: int, color: Optional[str] = None, size:
         return f"Network error accessing API: {str(e)}"
     except Exception as e:
         return f"Unexpected error in search_catalog: {str(e)}"
-
-@tool
-async def create_design(design_prompt: str, user_id: Optional[str] = None, db: Optional[AsyncSession] = None) -> str:
-    """
-    Create a design based on user prompt.
-    Args:
-        design_prompt: User's description of the desired design.
-    Returns:
-        Design creation result with design URL.
-    """
-    design_id = str(uuid.uuid4())
-    design_url = f"https://designs.printplatform.com/designs/{design_id}.jpg"
-    return json.dumps({"status": "success", "design_url": design_url})
-
-
-@tool
-async def place_order(user_id: str, db: AsyncSession) -> str:
-    """
-    Trigger frontend order placement UI via websocket.
-    Args:
-        user_id: User ID to send websocket signal to.
-    Returns:
-        Signal result confirming UI trigger.
-    """
-    session_context = await SessionManager.get_session_context_for_agent(db, UUID(user_id))
-    product_data = session_context.get("product_context", {}).get("product")
-    user_selection = session_context.get("product_context", {}).get("user_selection")
-    design_data = session_context.get("design_urls")
-
-    if not all([product_data, user_selection, design_data]):
-        return json.dumps({"status": "error", "message": "Missing product, selection, or design for order placement."})
-
-    # Send websocket signal to frontend
-    try: 
-        from core.websocket_manager import websocket_manager
-
-        order_context = {
-            "product": product_data,
-            "design": design_data,
-            "selection": user_selection
-        }
-    
-        signal_sent = await websocket_manager.send_order_ui_trigger(user_id, order_context)
-    
-        if signal_sent:
-            return json.dumps({
-                "status": "success", 
-                "message": "Order placement UI triggered. Please guide user to complete the order in the popup window.",
-                "action": "trigger_order_ui"
-            })
-        else:
-            return json.dumps({
-                "status": "warning",
-                "message": "Order UI trigger sent, but no active connection found. Please refresh the page and try again."
-            })
-    except ImportError:
-        # Fallback if websocket is not available.. 
-        return json.dumps({
-            "status": "success", 
-            "message": "Order placement UI triggered. Please complete your order in the popup window.",
-            "action": "trigger_order_ui"
-        }) 
-
-@tool
-async def search_order(order_id: str, user_id: str, db: AsyncSession) -> str:
-    """
-    Search for previous orders by order ID.
-    Args:
-        order_id: The order ID to search for.
-    Returns:
-        Order details if found, or not found message.
-    """
-    orders = await SessionManager.get_user_orders(db, UUID(user_id))
-    for order in orders:
-        if order.order_number == order_id:
-            return json.dumps({"status": "success", "order": order.dict()})
-    return json.dumps({"status": "error", "message": "Order not found."})
-
-AVAILABLE_TOOLS = [search_catalog, create_design, place_order, search_order]

@@ -41,13 +41,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import cloudinary
+
 # Event handlers for DB connection
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database connection on startup"""
-    logger.info("Starting up API and initializing database...")
+    """Initialize database connection and other services on startup"""
+    logger.info("Starting up API and initializing services...")
+    
+    # Initialize database
     await init_db()
     logger.info("Database initialized.")
+
+    # Configure Cloudinary SDK
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET,
+        secure=True
+    )
+    logger.info("Cloudinary SDK configured.")
 
 @app.on_event("shutdown")
 async def shutdown_event():
