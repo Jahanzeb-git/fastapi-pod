@@ -48,6 +48,10 @@ class LoginRequest(BaseModel):
 class GoogleAuthRequest(BaseModel):
     auth_code: str
 
+class FacebookAuthRequest(BaseModel):
+    auth_code: str
+    redirect_uri: str # Required by Facebook API
+
 class RefreshResponse(BaseModel):
     access_token: str
     expires_in: int
@@ -284,6 +288,91 @@ async def google_auth(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during Google authentication"
+        )
+
+@auth_router.post("/facebook", response_model=TokenResponse)
+async def facebook_auth(
+    request: FacebookAuthRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db)
+):
+    """Facebook OAuth authentication"""
+    try:
+        facebook_user_info = await FacebookOAuthValidator.verify_facebook_token(
+            request.auth_code, request.redirect_uri
+        )
+        if not facebook_user_info:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Facebook authentication code. Please ensure you granted email permission."
+            )
+
+        user_query = select(User).where(
+            User.email == facebook_user_info["email"],
+            User.provider == "facebook"
+        )
+        user_result = await db.execute(user_query)
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            user = User(
+                email=facebook_user_info["email"],
+                provider="facebook",
+                is_verified=True, # Email is considered verified from FB
+                first_name=facebook_user_info["first_name"],
+                last_name=facebook_user_info["last_name"],
+                profile_picture=facebook_user_info.get("profile_picture")
+            )
+            db.add(user)
+            await db.flush()
+            await db.refresh(user)
+            logger.info(f"Created new Facebook user: {facebook_user_info['email']}")
+        else:
+            user.first_name = facebook_user_info["first_name"] or user.first_name
+            user.last_name = facebook_user_info["last_name"] or user.last_name
+            user.profile_picture = facebook_user_info.get("profile_picture") or user.profile_picture
+            user.is_verified = True
+            logger.info(f"Updated existing Facebook user: {facebook_user_info['email']}")
+
+        access_token = TokenManager.generate_access_token(
+            user_id=user.id,
+            email=user.email,
+            additional_claims={"provider": user.provider}
+        )
+        
+        refresh_token = TokenManager.generate_refresh_token()
+        await TokenManager.store_refresh_token(db, user.id, refresh_token)
+        
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=settings.COOKIE_HTTPONLY,
+            secure=settings.COOKIE_SECURE,
+            samesite=settings.COOKIE_SAMESITE,
+            max_age=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+        )
+        
+        await db.commit()
+        
+        return TokenResponse(
+            access_token=access_token,
+            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            user=UserResponse.from_orm(user)
+        )
+
+    except AuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Facebook auth error: {e}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during Facebook authentication"
         )
 
 @auth_router.post("/refresh", response_model=RefreshResponse)

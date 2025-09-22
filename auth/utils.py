@@ -217,6 +217,75 @@ class GoogleOAuthValidator:
             "is_verified": True
         }
 
+import httpx
+
+class FacebookOAuthValidator:
+    GRAPH_API_VERSION = "v19.0"
+    TOKEN_URL = f"https://graph.facebook.com/{GRAPH_API_VERSION}/oauth/access_token"
+    ME_URL = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me"
+
+    @staticmethod
+    async def verify_facebook_token(auth_code: str, redirect_uri: str) -> Optional[Dict[str, Any]]:
+        """
+        Verify Facebook OAuth authorization code and return user info.
+        """
+        if not settings.FACEBOOK_APP_ID or not settings.FACEBOOK_APP_SECRET:
+            logger.error("Facebook OAuth credentials are not configured.")
+            return None
+
+        try:
+            async with httpx.AsyncClient() as client:
+                # 1. Exchange authorization code for an access token
+                token_params = {
+                    "client_id": settings.FACEBOOK_APP_ID,
+                    "client_secret": settings.FACEBOOK_APP_SECRET,
+                    "redirect_uri": redirect_uri,
+                    "code": auth_code,
+                }
+                token_response = await client.get(FacebookOAuthValidator.TOKEN_URL, params=token_params)
+                token_response.raise_for_status()
+                access_token = token_response.json()["access_token"]
+
+                if not access_token:
+                    raise AuthError("Facebook did not return an access token.")
+
+                # 2. Use the access token to get user profile information
+                profile_params = {
+                    "fields": "id,first_name,last_name,email,picture.type(large)",
+                    "access_token": access_token,
+                }
+                profile_response = await client.get(FacebookOAuthValidator.ME_URL, params=profile_params)
+                profile_response.raise_for_status()
+                profile_data = profile_response.json()
+
+                return FacebookOAuthValidator.validate_facebook_user_info(profile_data)
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Facebook API error: {e.response.text}")
+            return None
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to parse Facebook response: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"An unexpected error occurred in verify_facebook_token: {e}")
+            return None
+
+    @staticmethod
+    def validate_facebook_user_info(user_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Validate and normalize Facebook user info, ensuring email is present."""
+        if not user_info.get("email"):
+            # Enforce our strategy: if user denies email, validation fails.
+            logger.warning(f"Facebook user {user_info.get('id')} did not grant email permission.")
+            raise AuthError("Your email address is required to sign in with Facebook. Please try again and grant email permission.")
+        
+        return {
+            "email": user_info["email"].lower().strip(),
+            "first_name": user_info.get("first_name", "").strip(),
+            "last_name": user_info.get("last_name", "").strip(),
+            "profile_picture": user_info.get("picture", {}).get("data", {}).get("url"),
+        }
+
+
 # Utility functions for validation
 def validate_email(email: str) -> str:
     """Basic email validation and normalization"""

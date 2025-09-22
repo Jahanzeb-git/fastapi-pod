@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = Field(default="", description="Google OAuth client ID")
     GOOGLE_CLIENT_SECRET: str = Field(default="", description="Google OAuth client secret")
     GOOGLE_REDIRECT_URI: str = Field(default="http://localhost:8000/auth/google/callback", description="Google OAuth redirect URI")
+
+    # Facebook OAuth Configuration
+    FACEBOOK_APP_ID: str = Field(default="", description="Facebook OAuth App ID")
+    FACEBOOK_APP_SECRET: str = Field(default="", description="Facebook OAuth App Secret")
     
     # API Configuration
     API_HOST: str = Field(default="0.0.0.0", description="API host")
